@@ -22,10 +22,8 @@ For the lighting, I used the toon-like lighting from the BRDF, but I left off th
 
 ## Reflection
 
-*Reflect on the assignment. What was difficult? What worked well? If you were doing it again, what would you change?*
 The most difficult part of this assignment was trying to set up hierarchy. I wasted a few hours trying to understand what was exactly wrong with the exported coordinates and then manually setting up the robot arm. A lot of time was spent tuning things like clipping/collision and lighting. If I were to do this assignment again, I would figure out how to get blender to do what I actually want (which is provide hierarchy information and local coordinates), though I'll undoubtedly do that for the final project (if it's 3D...). I would probably also change up Scene to make removing objects easier. 
 
-*Reflect on the design document. What was clear and what was ambiguous? How did you resolve the ambiguities?*
 The design document was unclear whether or not the robot arm pieces could pass through itself and through other objects (like the platform underneath). That said, I limited some of the degrees of rotation on the arm, and I prevented the tip/hand from passing through the platform. Also, only the tip of the arm can pop balloons while the rest of the arm will just phase through. 
 
 # About Base2
