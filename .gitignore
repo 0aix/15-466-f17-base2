@@ -1,5 +1,19 @@
 dist/main
 dist/main.exe
+dist/base2.exe
 objs
 dist/SDL2.dll
 kit-libs-*
+
+## Ignore Visual Studio
+*.suo
+*.db
+*.opendb
+*.vcxproj
+*.filters
+*.user
+*.userosscache
+*.sln
+Debug/
+Release/
+.vs/

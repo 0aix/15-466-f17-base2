@@ -20,7 +20,7 @@ static GLuint link_program(GLuint vertex_shader, GLuint fragment_shader);
 int main(int argc, char **argv) {
 	//Configuration:
 	struct {
-		std::string title = "Game2: Scene";
+		std::string title = "Game2: Robot Fun Police";
 		glm::uvec2 size = glm::uvec2(640, 480);
 	} config;
 
@@ -90,6 +90,7 @@ int main(int argc, char **argv) {
 	GLuint program = 0;
 	GLuint program_Position = 0;
 	GLuint program_Normal = 0;
+	GLuint program_Color = 0;
 	GLuint program_mvp = 0;
 	GLuint program_itmv = 0;
 	GLuint program_to_light = 0;
@@ -100,10 +101,13 @@ int main(int argc, char **argv) {
 			"uniform mat3 itmv;\n"
 			"in vec4 Position;\n"
 			"in vec3 Normal;\n"
+			"in vec3 Color;\n"
 			"out vec3 normal;\n"
+			"out vec3 color;\n"
 			"void main() {\n"
 			"	gl_Position = mvp * Position;\n"
 			"	normal = itmv * Normal;\n"
+			"	color = Color;\n"
 			"}\n"
 		);
 
@@ -111,10 +115,12 @@ int main(int argc, char **argv) {
 			"#version 330\n"
 			"uniform vec3 to_light;\n"
 			"in vec3 normal;\n"
+			"in vec3 color;\n"
 			"out vec4 fragColor;\n"
 			"void main() {\n"
-			"	float light = max(0.0, dot(normalize(normal), to_light));\n"
-			"	fragColor = vec4(light * vec3(1.0, 1.0, 1.0), 1.0);\n"
+			"	float nl = dot(normalize(normal), to_light);\n"
+			"   vec3 ambience = color * 0.1;\n"
+			"	fragColor = vec4(ambience + (color / 3.1415926) * 2.5f * (smoothstep(0.0, 0.1, nl) * 0.6 + 0.4), 1.0);\n"
 			"}\n"
 		);
 
@@ -125,6 +131,8 @@ int main(int argc, char **argv) {
 		if (program_Position == -1U) throw std::runtime_error("no attribute named Position");
 		program_Normal = glGetAttribLocation(program, "Normal");
 		if (program_Normal == -1U) throw std::runtime_error("no attribute named Normal");
+		program_Color = glGetAttribLocation(program, "Color");
+		if (program_Color == -1U) throw std::runtime_error("no attribute named Color");
 
 		//look up uniform locations:
 		program_mvp = glGetUniformLocation(program, "mvp");
@@ -144,6 +152,7 @@ int main(int argc, char **argv) {
 		Meshes::Attributes attributes;
 		attributes.Position = program_Position;
 		attributes.Normal = program_Normal;
+		attributes.Color = program_Color;
 
 		meshes.load("meshes.blob", attributes);
 	}
@@ -156,6 +165,8 @@ int main(int argc, char **argv) {
 	scene.camera.aspect = float(config.size.x) / float(config.size.y);
 	scene.camera.near = 0.01f;
 	//(transform will be handled in the update function below)
+
+	std::vector< Scene::Object * > robot;
 
 	//add some objects from the mesh library:
 	auto add_object = [&](std::string const &name, glm::vec3 const &position, glm::quat const &rotation, glm::vec3 const &scale) -> Scene::Object & {
@@ -171,6 +182,7 @@ int main(int argc, char **argv) {
 		object.program = program;
 		object.program_mvp = program_mvp;
 		object.program_itmv = program_itmv;
+		robot.emplace_back(&object);
 		return object;
 	};
 
@@ -204,25 +216,38 @@ int main(int argc, char **argv) {
 		}
 	}
 
-	//create a weird waving tree stack:
-	std::vector< Scene::Object * > tree_stack;
-	tree_stack.emplace_back( &add_object("Tree", glm::vec3(1.0f, 0.0f, 0.2f), glm::quat(0.0f, 0.0f, 0.0f, 1.0f), glm::vec3(0.3f)) );
-	tree_stack.emplace_back( &add_object("Tree", glm::vec3(0.0f, 0.0f, 1.7f), glm::quat(0.0f, 0.0f, 0.0f, 1.0f), glm::vec3(0.9f)) );
-	tree_stack.emplace_back( &add_object("Tree", glm::vec3(0.0f, 0.0f, 1.7f), glm::quat(0.0f, 0.0f, 0.0f, 1.0f), glm::vec3(0.9f)) );
-	tree_stack.emplace_back( &add_object("Tree", glm::vec3(0.0f, 0.0f, 1.7f), glm::quat(0.0f, 0.0f, 0.0f, 1.0f), glm::vec3(0.9f)) );
+	// angles
+	glm::vec3 base_rot = glm::vec3(0.0f, 0.0f, -49.3f * (float)M_PI / 180.0f);
+	glm::vec3 link1_rot = glm::vec3(0.0f, 0.0f, 0.0f);
+	glm::vec3 link2_rot = glm::vec3(21.9f * (float)M_PI / 180.0f, 0.0f, 0.0f);
+	glm::vec3 link3_rot = glm::vec3(76.7f * (float)M_PI / 180.0f, 0.0f, 0.0f);
 
-	for (uint32_t i = 1; i < tree_stack.size(); ++i) {
-		tree_stack[i]->transform.set_parent(&tree_stack[i-1]->transform);
-	}
+	// manually set up transforms for hierarchy because everything was exported in world
+	// instead of local space for some reason. also, I don't understand how blender
+	// shows parent-child coordinates. x and y seem relative but z is absolute?
+	robot[3]->transform.position = glm::vec3(0.0f, 0.0f, 0.0f);
+	robot[3]->transform.rotation = glm::quat(base_rot);
+	robot[11]->transform.position = glm::vec3(0.0f, 0.0f, 0.6f);
+	robot[11]->transform.rotation = glm::quat(link1_rot);
+	robot[12]->transform.position = glm::vec3(0.0f, 0.0f, 1.80318f - 0.6f);
+	robot[12]->transform.rotation = glm::quat(link2_rot);
+	robot[13]->transform.position = glm::vec3(0.0f, 0.0f, 2.99981f - 1.80318f);
+	robot[13]->transform.rotation = glm::quat(link3_rot);
+	robot[11]->transform.set_parent(&robot[3]->transform);
+	robot[12]->transform.set_parent(&robot[11]->transform);
+	robot[13]->transform.set_parent(&robot[12]->transform);
 
-	std::vector< float > wave_acc(tree_stack.size(), 0.0f);
+	glm::vec4 nail = glm::vec4(0.0f, 0.0f, 0.5f, 1.0f);
+	float balloon[] = { 1.0f, -1.0f, 2.0f };
+	bool popped[3] = { false };
+	int num_left = 3;
 
 	glm::vec2 mouse = glm::vec2(0.0f, 0.0f); //mouse position in [-1,1]x[-1,1] coordinates
 
 	struct {
-		float radius = 5.0f;
-		float elevation = 0.0f;
-		float azimuth = 0.0f;
+		float radius = 8.0f;
+		float elevation = 0.67f;
+		float azimuth = 4.33f;
 		glm::vec3 target = glm::vec3(0.0f, 0.0f, 0.0f);
 	} camera;
 
@@ -241,7 +266,6 @@ int main(int argc, char **argv) {
 					camera.elevation += -2.0f * (mouse.y - old_mouse.y);
 					camera.azimuth += -2.0f * (mouse.x - old_mouse.x);
 				}
-			} else if (evt.type == SDL_MOUSEBUTTONDOWN) {
 			} else if (evt.type == SDL_KEYDOWN && evt.key.keysym.sym == SDLK_ESCAPE) {
 				should_quit = true;
 			} else if (evt.type == SDL_QUIT) {
@@ -257,15 +281,106 @@ int main(int argc, char **argv) {
 		previous_time = current_time;
 
 		{ //update game state:
-			//tree stack:
-			for (uint32_t i = 0; i < tree_stack.size(); ++i) {
-				wave_acc[i] += elapsed * (0.3f + 0.3f * i);
-				wave_acc[i] -= std::floor(wave_acc[i]);
-				float ang = (0.7f * float(M_PI)) * i;
-				tree_stack[i]->transform.rotation = glm::angleAxis(
-					std::cos(wave_acc[i] * 2.0f * float(M_PI)) * (0.2f + 0.1f * i),
-					glm::vec3(std::cos(ang), std::sin(ang), 0.0f)
-				);
+			static const Uint8* state = SDL_GetKeyboardState(NULL);
+			const float step = 2.0f;
+
+			// insert stupid, slow code
+			glm::quat a = robot[3]->transform.rotation;
+			glm::quat b = robot[11]->transform.rotation;
+			glm::quat c = robot[12]->transform.rotation;
+			glm::quat d = robot[13]->transform.rotation;
+			float e = base_rot.z;
+			float f = link1_rot.x;
+			float g = link2_rot.x;
+			float h = link3_rot.x;
+
+			if (state[SDL_SCANCODE_Q]) {
+				base_rot.z += elapsed * step;
+			}
+			if (state[SDL_SCANCODE_W]) {
+				base_rot.z -= elapsed * step;
+			}
+			if (state[SDL_SCANCODE_E]) {
+				link1_rot.x += elapsed * step;
+				if (link1_rot.x >= 1.8f) link1_rot.x = 1.8f; // empirical
+			}
+			if (state[SDL_SCANCODE_R]) {
+				link1_rot.x -= elapsed * step;
+				if (link1_rot.x <= -1.8f) link1_rot.x = -1.8f; // empirical
+			}
+			if (state[SDL_SCANCODE_A]) {
+				link2_rot.x += elapsed * step;
+				if (link2_rot.x >= 2.3f) link2_rot.x = 2.3f; // empirical
+			}
+			if (state[SDL_SCANCODE_S]) {
+				link2_rot.x -= elapsed * step;
+				if (link2_rot.x <= -2.3f) link2_rot.x = -2.3f; // empirical
+			}
+			if (state[SDL_SCANCODE_D]) {
+				link3_rot.x += elapsed * step;
+				if (link3_rot.x >= 2.7f) link3_rot.x = 2.7f; // empirical
+			}
+			if (state[SDL_SCANCODE_F]) {
+				link3_rot.x -= elapsed * step;
+				if (link3_rot.x <= -2.7f) link3_rot.x = -2.7f; // empirical
+			}
+
+			robot[3]->transform.rotation = glm::quat(base_rot);
+			robot[11]->transform.rotation = glm::quat(link1_rot);
+			robot[12]->transform.rotation = glm::quat(link2_rot);
+			robot[13]->transform.rotation = glm::quat(link3_rot);
+
+			// stupid, slow code to check the nail piece for collision w/ ground
+			// still clips on the stand though
+			glm::mat4 local_to_world = robot[13]->transform.make_local_to_world();
+			glm::vec3 pos = local_to_world * nail;
+			glm::vec3 pos2 = local_to_world * glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+			if (pos.z < 0.0f || pos2.z < 0.25f) {
+				robot[3]->transform.rotation = a;
+				robot[11]->transform.rotation = b;
+				robot[12]->transform.rotation = c;
+				robot[13]->transform.rotation = d;
+				base_rot.z = e;
+				link1_rot.x = f;
+				link2_rot.x = g;
+				link3_rot.x = h;
+			}
+
+			for (int i = 0; i < 3; i++) {
+				if (!popped[i]) {
+					robot[i]->transform.position.z += elapsed * balloon[i];
+					if (robot[i]->transform.position.z <= 0.6f) {
+						robot[i]->transform.position.z = 0.6f;
+						balloon[i] *= -1.0f;
+					} else if (robot[i]->transform.position.z > 4.5f) {
+						robot[i]->transform.position.z = 4.5f;
+						balloon[i] *= -1.0f;
+					}
+					glm::vec3 diff = pos - robot[i]->transform.position;
+					if (diff.x * diff.x + diff.y * diff.y + diff.z * diff.z <= 0.6f * 0.6f) {
+						popped[i] = true;
+						balloon[i] = 0.2f;
+						// replace instead of deleting. shortcut code
+						Mesh const &mesh = meshes.get("Balloon" + std::to_string(i + 1) + "-Pop");
+						robot[i]->vao = mesh.vao;
+						robot[i]->start = mesh.start;
+						robot[i]->count = mesh.count;
+						if (--num_left == 0)
+							std::cout << "You win!" << std::endl;
+					}
+				} else if (balloon[i] > 0.0f) {
+					balloon[i] -= elapsed;
+					if (balloon[i] <= 0.0f) {
+						GLuint start = robot[i]->start;
+						for (auto it = scene.objects.begin(); it != scene.objects.end(); it++) {
+							// comparing by mesh rather than some id ... :S
+							if (it->start == start) {
+								scene.objects.erase(it);
+								break;
+							}
+						}
+					}
+				}
 			}
 
 			//camera:
@@ -295,7 +410,10 @@ int main(int argc, char **argv) {
 
 		{ //draw game state:
 			glUseProgram(program);
-			glUniform3fv(program_to_light, 1, glm::value_ptr(glm::normalize(glm::vec3(0.0f, 1.0f, 10.0f))));
+			
+			// lights. camera. action
+			glm::vec3 light_in_camera = glm::mat3(scene.camera.transform.make_world_to_local()) * glm::vec3(0.0f, 1.0f, 10.0f);
+			glUniform3fv(program_to_light, 1, glm::value_ptr(glm::normalize(light_in_camera)));
 			scene.render();
 		}
 

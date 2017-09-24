@@ -12,15 +12,28 @@ import sys
 import bpy
 import struct
 
-bpy.ops.wm.open_mainfile(filepath='island.blend')
+bpy.ops.wm.open_mainfile(filepath='robot.blend')
 
 #names of objects whose meshes to write (not actually the names of the meshes):
 to_write = [
-	'House',
-	'Land',
-	'Tree',
-	'Water',
-	'Rock',
+	'Balloon1',
+	'Balloon1-Pop',
+	'Balloon2',
+	'Balloon2-Pop',
+	'Balloon3',
+	'Balloon3-Pop',
+	'Crate',
+	'Crate.001',
+	'Crate.002',
+	'Crate.003',
+	'Crate.004',
+	'Crate.005',
+	'Cube.001',
+	'Stand',
+	'Base',
+	'Link1',
+	'Link2',
+	'Link3',
 ]
 
 #data contains vertex and normal data from the meshes:
@@ -35,7 +48,6 @@ index = b''
 vertex_count = 0
 for name in to_write:
 	print("Writing '" + name + "'...")
-	bpy.ops.object.mode_set(mode='OBJECT') #get out of edit mode (just in case)
 	assert(name in bpy.data.objects)
 	obj = bpy.data.objects[name]
 
@@ -58,6 +70,8 @@ for name in to_write:
 	mesh = obj.data
 	mesh.calc_normals_split()
 
+	colors = mesh.vertex_colors.active.data
+
 	#record mesh name, start position and vertex count in the index:
 	name_begin = len(strings)
 	strings += bytes(name, "utf8")
@@ -75,17 +89,19 @@ for name in to_write:
 			assert(mesh.loops[poly.loop_indices[i]].vertex_index == poly.vertices[i])
 			loop = mesh.loops[poly.loop_indices[i]]
 			vertex = mesh.vertices[loop.vertex_index]
-			for x in mesh.vertices[loop.vertex_index].co:
+			for x in vertex.co:
 				data += struct.pack('f', x)
 			for x in loop.normal:
+				data += struct.pack('f', x)
+			for x in colors[poly.loop_indices[i]].color:
 				data += struct.pack('f', x)
 	vertex_count += len(mesh.polygons) * 3
 
 #check that we wrote as much data as anticipated:
-assert(vertex_count * (3 * 4 + 3 * 4) == len(data))
+assert(vertex_count * (3 * 4 + 3 * 4 + 3 * 4) == len(data))
 
 #write the data chunk and index chunk to an output blob:
-blob = open('../dist/meshes.blob', 'wb')
+blob = open('meshes.blob', 'wb')
 #first chunk: the data
 blob.write(struct.pack('4s',b'v3n3')) #type
 blob.write(struct.pack('I', len(data))) #length
@@ -105,7 +121,7 @@ print("Wrote " + str(blob.tell()) + " bytes to meshes.blob")
 #Export scene (object positions for every object on layer one)
 
 #(re-open file because we adjusted mesh users in the export above)
-bpy.ops.wm.open_mainfile(filepath='island.blend')
+bpy.ops.wm.open_mainfile(filepath='robot.blend')
 
 #strings chunk will have names
 strings = b''
@@ -133,7 +149,7 @@ for obj in bpy.data.objects:
 	scene += struct.pack('3f', transform[2].x, transform[2].y, transform[2].z)
 
 #write the strings chunk and scene chunk to an output blob:
-blob = open('../dist/scene.blob', 'wb')
+blob = open('scene.blob', 'wb')
 #first chunk: the strings
 blob.write(struct.pack('4s',b'str0')) #type
 blob.write(struct.pack('I', len(strings))) #length
