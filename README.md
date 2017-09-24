@@ -1,29 +1,32 @@
-NOTE: please fill in the first section with information about your game.
+# *Robot Fun Police*
 
-# *Game Title*
+*Robot Fun Police* is *Brian Xiao*'s implementation of [*Robot Fun Police*](http://http://graphics.cs.cmu.edu/courses/15-466-f17/game2-designs/jmccann/) for game2 in 15-466-f17.
 
-*Game Title* is *Your Name*'s implementation of [*Design Document*](http://graphics.cs.cmu.edu/courses/15-466-f17/game2-designs/put-real-link-here) for game2 in 15-466-f17.
-
-*Include a Screenshot Here*
-
-## Build Notes
-
-*Include any special notes or steps required to build your game here. If there are no special notes, delete this section.*
+![](https://github.com/0aix/15-466-f17-base2/blob/master/screenshots/robot-fun-police.png?raw=true)
 
 ## Asset Pipeline
 
-*Briefly describe the asset pipeline for this game. What sorts of source files are used? How are they processed? How are they loaded?*
+The assets for this game are all contained in [robot.blend](https://github.com/0aix/15-466-f17-base2/blob/master/models/robot.blend). The meshes in the file are exported using a python script ([export-meshes.py](https://github.com/0aix/15-466-f17-base2/blob/master/models/export-meshes.py)) to a blob file storing vertex positions and colors. The scene in the file is exported using the same script to a blob file storing objects and transformations. The meshes and scene are loaded on startup.
 
 ## Architecture
 
-*Provide a brief introduction to how you implemented the design. Talk about the basic structure of your code.*
+The meshes and scene were loaded with the base code. However, because of my shortcomings with blender (and really, complete lack of understanding), I had manually set up hierarchy in the robot arm by hardcoding in the relative transformations and rotations. 
+
+To determine the rotation of each part of the arm, I keep 4 Euler angle vectors (for base, link1, link2, and link3), and I calculate the rotation quaternions from these. To prevent clipping to the best of my abilities, I limit how much each part can rotate. I also prevent any rotations that bring the tip of the arm underneath the platform.
+
+The tip/nail's position is calculated using the local_to_world transform of the "hand" of the arm and a vector <0, 0, 0.5> (empirically taken from blender). Also, the balloons are treated as spheres of radii 0.6 (also taken from blender), and collision is determined by the distance of the tip to a balloon's center/position. 
+
+When a balloon is first popped, the mesh in the object is replaced with its popped version. After 0.2s passes, the object is then actually deleted from the scene.
+
+For the lighting, I used the toon-like lighting from the BRDF, but I left off the specular part since I didn't want to set roughness/shininess. (I did add some ambient color though since the scene felt either too dark or too bright.) It also took me the longest time to figure out that the light vector had to be transformed to camera space. 
 
 ## Reflection
 
 *Reflect on the assignment. What was difficult? What worked well? If you were doing it again, what would you change?*
+The most difficult part of this assignment was trying to set up hierarchy. I wasted a few hours trying to understand what was exactly wrong with the exported coordinates and then manually setting up the robot arm. A lot of time was spent tuning things like clipping/collision and lighting. If I were to do this assignment again, I would figure out how to get blender to do what I actually want (which is provide hierarchy information and local coordinates), though I'll undoubtedly do that for the final project (if it's 3D...). I would probably also change up Scene to make removing objects easier. 
 
 *Reflect on the design document. What was clear and what was ambiguous? How did you resolve the ambiguities?*
-
+The design document was unclear whether or not the robot arm pieces could pass through itself and through other objects (like the platform underneath). That said, I limited some of the degrees of rotation on the arm, and I prevented the tip/hand from passing through the platform. Also, only the tip of the arm can pop balloons while the rest of the arm will just phase through. 
 
 # About Base2
 
