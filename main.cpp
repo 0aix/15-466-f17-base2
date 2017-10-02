@@ -2,6 +2,7 @@
 #include "GL.hpp"
 #include "Meshes.hpp"
 #include "Scene.hpp"
+#include "Draw.hpp"
 #include "read_chunk.hpp"
 
 #include <SDL.h>
@@ -21,7 +22,7 @@ int main(int argc, char **argv) {
 	//Configuration:
 	struct {
 		std::string title = "Game2: Robot Fun Police";
-		glm::uvec2 size = glm::uvec2(640, 480);
+		glm::uvec2 size = glm::uvec2(800, 600);
 	} config;
 
 	//------------  initialization ------------
@@ -119,8 +120,8 @@ int main(int argc, char **argv) {
 			"out vec4 fragColor;\n"
 			"void main() {\n"
 			"	float nl = dot(normalize(normal), to_light);\n"
-			"   vec3 ambience = color * 0.1;\n"
-			"	fragColor = vec4(ambience + (color / 3.1415926) * 2.5f * (smoothstep(0.0, 0.1, nl) * 0.6 + 0.4), 1.0);\n"
+			"   vec3 ambience = color * 0.5f;\n"
+			"	fragColor = vec4(ambience + (color / 3.1415926) * 1.5f * (smoothstep(0.0, 0.1, nl) * 0.6 + 0.4), 1.0);\n"
 			"}\n"
 		);
 
@@ -166,7 +167,7 @@ int main(int argc, char **argv) {
 	scene.camera.near = 0.01f;
 	//(transform will be handled in the update function below)
 
-	std::vector< Scene::Object * > robot;
+	std::vector< Scene::Object * > pool;
 
 	//add some objects from the mesh library:
 	auto add_object = [&](std::string const &name, glm::vec3 const &position, glm::quat const &rotation, glm::vec3 const &scale) -> Scene::Object & {
@@ -182,7 +183,7 @@ int main(int argc, char **argv) {
 		object.program = program;
 		object.program_mvp = program_mvp;
 		object.program_itmv = program_itmv;
-		robot.emplace_back(&object);
+		pool.emplace_back(&object);
 		return object;
 	};
 
@@ -216,40 +217,80 @@ int main(int argc, char **argv) {
 		}
 	}
 
-	// angles
-	glm::vec3 base_rot = glm::vec3(0.0f, 0.0f, -49.3f * (float)M_PI / 180.0f);
-	glm::vec3 link1_rot = glm::vec3(0.0f, 0.0f, 0.0f);
-	glm::vec3 link2_rot = glm::vec3(21.9f * (float)M_PI / 180.0f, 0.0f, 0.0f);
-	glm::vec3 link3_rot = glm::vec3(76.7f * (float)M_PI / 180.0f, 0.0f, 0.0f);
+	struct Body {
+		glm::vec2 pos;
+		glm::vec2 dir = glm::vec2(0.0f, 0.0f);
+		glm::quat rot = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+		float vel = 0.0f;
+	} * bodies[17];
 
-	// manually set up transforms for hierarchy because everything was exported in world
-	// instead of local space for some reason. also, I don't understand how blender
-	// shows parent-child coordinates. x and y seem relative but z is absolute?
-	robot[3]->transform.position = glm::vec3(0.0f, 0.0f, 0.0f);
-	robot[3]->transform.rotation = glm::quat(base_rot);
-	robot[11]->transform.position = glm::vec3(0.0f, 0.0f, 0.6f);
-	robot[11]->transform.rotation = glm::quat(link1_rot);
-	robot[12]->transform.position = glm::vec3(0.0f, 0.0f, 1.80318f - 0.6f);
-	robot[12]->transform.rotation = glm::quat(link2_rot);
-	robot[13]->transform.position = glm::vec3(0.0f, 0.0f, 2.99981f - 1.80318f);
-	robot[13]->transform.rotation = glm::quat(link3_rot);
-	robot[11]->transform.set_parent(&robot[3]->transform);
-	robot[12]->transform.set_parent(&robot[11]->transform);
-	robot[13]->transform.set_parent(&robot[12]->transform);
+	struct Ball {
+		Scene::Object* obj;
+		Body body;
+		enum {
+			SOLID,
+			DIAMOND,
+			EIGHT
+		} type;
+		bool sunk = false;
+	} balls[15];
 
-	glm::vec4 nail = glm::vec4(0.0f, 0.0f, 0.5f, 1.0f);
-	float balloon[] = { 1.0f, -1.0f, 2.0f };
-	bool popped[3] = { false };
-	int num_left = 3;
+	for (int i = 0; i < 15; i++) {
+		balls[i].obj = pool[i];
+		balls[i].body.pos = pool[i]->transform.position;
+		if (i < 7)
+			balls[i].type = Ball::SOLID;
+		else if (i == 7)
+			balls[i].type = Ball::EIGHT;
+		else
+			balls[i].type = Ball::DIAMOND;
+	}
+
+	static const float MAX_POWER = 10.0f;
+	static const float MIN_POWER = 1.0f;
+	
+	struct Dozer {
+		Scene::Object* obj;
+		Body body;
+		float power = MIN_POWER;
+		float rad = 0.0f;
+	} dozers[2];
+
+	dozers[0].obj = pool[15];
+	dozers[0].body.pos = pool[15]->transform.position;
+	dozers[0].body.rot = pool[15]->transform.rotation;
+	dozers[0].rad = (float)M_PI;
+	dozers[1].obj = pool[16];
+	dozers[1].body.pos = pool[16]->transform.position;
+
+	for (int i = 0; i < 15; i++)
+		bodies[i] = &balls[i].body;
+	bodies[15] = &dozers[0].body;
+	bodies[16] = &dozers[1].body;
+
+	int solids = 7;
+	int diamonds = 7;
+	bool solid = false;
+	bool diamond = false;
+	bool eight = false;
 
 	glm::vec2 mouse = glm::vec2(0.0f, 0.0f); //mouse position in [-1,1]x[-1,1] coordinates
 
 	struct {
-		float radius = 8.0f;
-		float elevation = 0.67f;
-		float azimuth = 4.33f;
+		float radius = 5.2f;
+		float elevation = 1.2f;
+		float azimuth = 0.5f * M_PI;
 		glm::vec3 target = glm::vec3(0.0f, 0.0f, 0.0f);
 	} camera;
+
+	enum {
+		SOLID,
+		SOLID_RESOLVING,
+		DIAMOND,
+		DIAMOND_RESOLVING,
+		SOLID_WIN,
+		DIAMOND_WIN
+	} turn = DIAMOND;
 
 	//------------ game loop ------------
 
@@ -280,108 +321,342 @@ int main(int argc, char **argv) {
 		float elapsed = std::chrono::duration< float >(current_time - previous_time).count();
 		previous_time = current_time;
 
+		if (elapsed > 0.016f) {
+			elapsed = 0.016f;
+		}
+
 		{ //update game state:
 			static const Uint8* state = SDL_GetKeyboardState(NULL);
-			const float step = 2.0f;
 
-			// insert stupid, slow code
-			glm::quat a = robot[3]->transform.rotation;
-			glm::quat b = robot[11]->transform.rotation;
-			glm::quat c = robot[12]->transform.rotation;
-			glm::quat d = robot[13]->transform.rotation;
-			float e = base_rot.z;
-			float f = link1_rot.x;
-			float g = link2_rot.x;
-			float h = link3_rot.x;
-
-			if (state[SDL_SCANCODE_Q]) {
-				base_rot.z += elapsed * step;
-			}
-			if (state[SDL_SCANCODE_W]) {
-				base_rot.z -= elapsed * step;
-			}
-			if (state[SDL_SCANCODE_E]) {
-				link1_rot.x += elapsed * step;
-				if (link1_rot.x >= 1.8f) link1_rot.x = 1.8f; // empirical
-			}
-			if (state[SDL_SCANCODE_R]) {
-				link1_rot.x -= elapsed * step;
-				if (link1_rot.x <= -1.8f) link1_rot.x = -1.8f; // empirical
-			}
-			if (state[SDL_SCANCODE_A]) {
-				link2_rot.x += elapsed * step;
-				if (link2_rot.x >= 2.3f) link2_rot.x = 2.3f; // empirical
-			}
-			if (state[SDL_SCANCODE_S]) {
-				link2_rot.x -= elapsed * step;
-				if (link2_rot.x <= -2.3f) link2_rot.x = -2.3f; // empirical
-			}
-			if (state[SDL_SCANCODE_D]) {
-				link3_rot.x += elapsed * step;
-				if (link3_rot.x >= 2.7f) link3_rot.x = 2.7f; // empirical
-			}
-			if (state[SDL_SCANCODE_F]) {
-				link3_rot.x -= elapsed * step;
-				if (link3_rot.x <= -2.7f) link3_rot.x = -2.7f; // empirical
-			}
-
-			robot[3]->transform.rotation = glm::quat(base_rot);
-			robot[11]->transform.rotation = glm::quat(link1_rot);
-			robot[12]->transform.rotation = glm::quat(link2_rot);
-			robot[13]->transform.rotation = glm::quat(link3_rot);
-
-			// stupid, slow code to check the nail piece for collision w/ ground
-			// still clips on the stand though
-			glm::mat4 local_to_world = robot[13]->transform.make_local_to_world();
-			glm::vec3 pos = local_to_world * nail;
-			glm::vec3 pos2 = local_to_world * glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
-			if (pos.z < 0.0f || pos2.z < 0.25f) {
-				robot[3]->transform.rotation = a;
-				robot[11]->transform.rotation = b;
-				robot[12]->transform.rotation = c;
-				robot[13]->transform.rotation = d;
-				base_rot.z = e;
-				link1_rot.x = f;
-				link2_rot.x = g;
-				link3_rot.x = h;
+			if (turn == DIAMOND) {
+				if (state[SDL_SCANCODE_A]) {
+					dozers[0].rad += elapsed * M_PI;
+					dozers[0].body.rot = glm::quat(glm::vec3(0.0f, 0.0f, dozers[0].rad));
+				}
+				if (state[SDL_SCANCODE_D]) {
+					dozers[0].rad -= elapsed * M_PI;
+					dozers[0].body.rot = glm::quat(glm::vec3(0.0f, 0.0f, dozers[0].rad));
+				}
+				if (state[SDL_SCANCODE_W]) {
+					dozers[0].power += MAX_POWER * elapsed;
+					if (dozers[0].power >= MAX_POWER)
+						dozers[0].power = MAX_POWER;
+				}
+				if (state[SDL_SCANCODE_S]) {
+					dozers[0].power -= MAX_POWER * elapsed;
+					if (dozers[0].power <= MIN_POWER)
+						dozers[0].power = MIN_POWER;
+				}
+				if (state[SDL_SCANCODE_LSHIFT]) {
+					dozers[0].body.dir.x = glm::cos(dozers[0].rad);
+					dozers[0].body.dir.y = glm::sin(dozers[0].rad);
+					dozers[0].body.vel = dozers[0].power;
+					solid = false;
+					diamond = false;
+					turn = DIAMOND_RESOLVING;
+				}
+			} else if (turn == SOLID) {
+				if (state[SDL_SCANCODE_LEFT]) {
+					dozers[1].rad += elapsed * M_PI;
+					dozers[1].body.rot = glm::quat(glm::vec3(0.0f, 0.0f, dozers[1].rad));
+				}
+				if (state[SDL_SCANCODE_RIGHT]) {
+					dozers[1].rad -= elapsed * M_PI;
+					dozers[1].body.rot = glm::quat(glm::vec3(0.0f, 0.0f, dozers[1].rad));
+				}
+				if (state[SDL_SCANCODE_UP]) {
+					dozers[1].power += MAX_POWER * elapsed;
+					if (dozers[1].power >= MAX_POWER)
+						dozers[1].power = MAX_POWER;
+				}
+				if (state[SDL_SCANCODE_DOWN]) {
+					dozers[1].power -= MAX_POWER * elapsed;
+					if (dozers[1].power <= MIN_POWER)
+						dozers[1].power = MIN_POWER;
+				}
+				if (state[SDL_SCANCODE_RSHIFT]) {
+					dozers[1].body.dir.x = glm::cos(dozers[1].rad);
+					dozers[1].body.dir.y = glm::sin(dozers[1].rad);
+					dozers[1].body.vel = dozers[1].power;
+					solid = false;
+					diamond = false;
+					turn = SOLID_RESOLVING;
+				}
 			}
 
-			for (int i = 0; i < 3; i++) {
-				if (!popped[i]) {
-					robot[i]->transform.position.z += elapsed * balloon[i];
-					if (robot[i]->transform.position.z <= 0.6f) {
-						robot[i]->transform.position.z = 0.6f;
-						balloon[i] *= -1.0f;
-					} else if (robot[i]->transform.position.z > 4.5f) {
-						robot[i]->transform.position.z = 4.5f;
-						balloon[i] *= -1.0f;
+			// update bodies
+			if (turn == SOLID_RESOLVING || turn == DIAMOND_RESOLVING) {
+				const float BALL_LIFE = 1.0f / 10.0f;
+				const float BALL_AIR = 0.05f;
+				const float DOZER_LIFE = 1.0f / 5.0f;
+				const float DOZER_AIR = 0.5f;
+				for (float temp = elapsed; temp > 0.0f; temp -= 0.001f) {
+					float step = temp < 0.001f ? temp : 0.001f;
+					// position update
+					for (int i = 0; i < 17; i++) {
+						if (bodies[i]->vel > 0.0f) {
+							bodies[i]->pos += step * bodies[i]->vel * bodies[i]->dir;
+						}
 					}
-					glm::vec3 diff = pos - robot[i]->transform.position;
-					if (diff.x * diff.x + diff.y * diff.y + diff.z * diff.z <= 0.6f * 0.6f) {
-						popped[i] = true;
-						balloon[i] = 0.2f;
-						// replace instead of deleting. shortcut code
-						Mesh const &mesh = meshes.get("Balloon" + std::to_string(i + 1) + "-Pop");
-						robot[i]->vao = mesh.vao;
-						robot[i]->start = mesh.start;
-						robot[i]->count = mesh.count;
-						if (--num_left == 0)
-							std::cout << "You win!" << std::endl;
+					// rotation update
+					for (int i = 0; i < 15; i++) {
+						if (bodies[i]->vel > 0.0f) {
+							float m = 0.5f * step * bodies[i]->vel / 0.15f;
+							float sinm = glm::sin(m);
+							glm::quat rot = glm::quat(glm::cos(m), -bodies[i]->dir.y * sinm, bodies[i]->dir.x * sinm, 0.0f);
+							bodies[i]->rot = rot * bodies[i]->rot;
+						}
 					}
-				} else if (balloon[i] > 0.0f) {
-					balloon[i] -= elapsed;
-					if (balloon[i] <= 0.0f) {
-						GLuint start = robot[i]->start;
-						for (auto it = scene.objects.begin(); it != scene.objects.end(); it++) {
-							// comparing by mesh rather than some id ... :S
-							if (it->start == start) {
-								scene.objects.erase(it);
-								break;
+					// bad collision checks and resolutions incoming
+					// wall check for balls
+					for (int i = 0; i < 15; i++) {
+						// badly approximate resolution
+						if (!balls[i].sunk) {
+							if (bodies[i]->pos.x < -2.85f) {
+								bodies[i]->pos.x = -2.85f;
+								if (bodies[i]->dir.x < 0.0f)
+									bodies[i]->dir.x = -bodies[i]->dir.x;
+								if (bodies[i]->pos.y < -1.6f || bodies[i]->pos.y > 1.6f) {
+									bodies[i]->vel = 0.0f;
+									balls[i].sunk = true;
+									switch (balls[i].type) {
+									case Ball::SOLID:
+										solid = true;
+										solids--;
+										break;
+									case Ball::DIAMOND:
+										diamond = true;
+										diamonds--;
+										break;
+									case Ball::EIGHT:
+										eight = true;
+									}
+								}
+							} else if (bodies[i]->pos.x > 2.85f) {
+								bodies[i]->pos.x = 2.85f;
+								if (bodies[i]->dir.x > 0.0f)
+									bodies[i]->dir.x = -bodies[i]->dir.x;
+								if (bodies[i]->pos.y < -1.6f || bodies[i]->pos.y > 1.6f) {
+									bodies[i]->vel = 0.0f;
+									balls[i].sunk = true;
+									switch (balls[i].type) {
+									case Ball::SOLID:
+										solid = true;
+										solids--;
+										break;
+									case Ball::DIAMOND:
+										diamond = true;
+										diamonds--;
+										break;
+									case Ball::EIGHT:
+										eight = true;
+									}
+								}
 							}
+							if (bodies[i]->pos.y < -1.85f) {
+								bodies[i]->pos.y = -1.85f;
+								if (bodies[i]->dir.y < 0.0f)
+									bodies[i]->dir.y = -bodies[i]->dir.y;
+								if (-0.4f < bodies[i]->pos.x && bodies[i]->pos.x < 0.4f) {
+									bodies[i]->vel = 0.0f;
+									balls[i].sunk = true;
+									switch (balls[i].type) {
+									case Ball::SOLID:
+										solid = true;
+										solids--;
+										break;
+									case Ball::DIAMOND:
+										diamond = true;
+										diamonds--;
+										break;
+									case Ball::EIGHT:
+										eight = true;
+									}
+								}
+							} else if (bodies[i]->pos.y > 1.85f) {
+								bodies[i]->pos.y = 1.85f;
+								if (bodies[i]->dir.y > 0.0f)
+									bodies[i]->dir.y= -bodies[i]->dir.y;
+								if (-0.4f < bodies[i]->pos.x && bodies[i]->pos.x < 0.4f) {
+									bodies[i]->vel = 0.0f;
+									balls[i].sunk = true;
+									switch (balls[i].type) {
+									case Ball::SOLID:
+										solid = true;
+										solids--;
+										break;
+									case Ball::DIAMOND:
+										diamond = true;
+										diamonds--;
+										break;
+									case Ball::EIGHT:
+										eight = true;
+									}
+								}
+							}
+						}
+					}
+					for (int i = 0; i < 2; i++) {
+						// badly approximate resolution
+						if (bodies[i + 15]->pos.x < -2.85f) {
+							bodies[i + 15]->pos.x = -2.85f;
+							if (bodies[i + 15]->dir.x < 0.0f)
+								bodies[i + 15]->dir.x = -bodies[i + 15]->dir.x;
+							bodies[i + 15]->vel *= 0.1f;
+						}
+						else if (bodies[i + 15]->pos.x > 2.85f) {
+							bodies[i + 15]->pos.x = 2.85f;
+							if (bodies[i + 15]->dir.x > 0.0f)
+								bodies[i + 15]->dir.x = -bodies[i + 15]->dir.x;
+							bodies[i + 15]->vel *= 0.1f;
+						}
+						if (bodies[i + 15]->pos.y < -1.85f) {
+							bodies[i + 15]->pos.y = -1.85f;
+							if (bodies[i + 15]->dir.y < 0.0f)
+								bodies[i + 15]->dir.y = -bodies[i + 15]->dir.y;
+							bodies[i + 15]->vel *= 0.1f;
+						}
+						else if (bodies[i + 15]->pos.y > 1.85f) {
+							bodies[i + 15]->pos.y = 1.85f;
+							if (bodies[i + 15]->dir.y > 0.0f)
+								bodies[i + 15]->dir.y = -bodies[i + 15]->dir.y;
+							bodies[i + 15]->vel *= 0.1f;
+						}
+					}
+					// collision check
+					for (int i = 0; i < 16; i++) {
+						if (i < 15 && balls[i].sunk)
+							continue;
+						for (int j = i + 1; j < 17; j++) {
+							if (i < 15 && balls[i].sunk)
+								continue;
+							glm::vec2 ab = bodies[i]->pos - bodies[j]->pos;
+							if (ab.x * ab.x + ab.y * ab.y < 0.3f * 0.3f) {
+								float length = glm::length(ab);
+								glm::vec2 norm = ab / length;
+								glm::vec2 res = 0.5f * (0.3f - length) * norm;
+								// badly approximate resolution
+								bodies[i]->pos += res;
+								bodies[j]->pos -= res;
+								// elastic collision w/ equal mass
+								glm::vec2 a = bodies[j]->vel * bodies[j]->dir;
+								glm::vec2 b = bodies[i]->vel * bodies[i]->dir;
+								float ua = glm::dot(a, norm);
+								float ub = glm::dot(b, norm);
+								a -= (ua - ub) * norm;
+								b += (ua - ub) * norm;
+								bodies[j]->vel = glm::length(a);
+								bodies[j]->dir = a / bodies[j]->vel;
+								bodies[i]->vel = glm::length(b);
+								bodies[i]->dir = b / bodies[i]->vel;
+							}
+						}
+					}
+					// velocity update
+					for (int i = 0; i < 15; i++) {
+						if (balls[i].body.vel > 0.0f) {
+							balls[i].body.vel *= exp2f(-elapsed * BALL_LIFE);
+							balls[i].body.vel -= step * BALL_AIR;
+							if (balls[i].body.vel < 0.0f)
+								balls[i].body.vel = 0.0f;
+						}
+					}
+					for (int i = 0; i < 2; i++) {
+						if (dozers[i].body.vel > 0.0f) {
+							dozers[i].body.vel *= exp2f(-elapsed * DOZER_LIFE);
+							dozers[i].body.vel -= step * DOZER_AIR;
+							if (dozers[i].body.vel < 0.0f)
+								dozers[i].body.vel = 0.0f;
+						}
+					}
+				}
+
+				// resolution check
+				bool resolved = true;
+				for (int i = 0; i < 17; i++) {
+					if (bodies[i]->vel > 0.0f) {
+						resolved = false;
+						break;
+					}
+				}
+				if (resolved) {
+					for (int i = 0; i < 15; i++) {
+						if (!balls[i].sunk) {
+							// tired at this point.....
+							if (glm::length(bodies[i]->pos - glm::vec2(-3.0f, -2.0f)) < 0.4f ||
+								glm::length(bodies[i]->pos - glm::vec2(0.0f, -2.0f)) < 0.4f ||
+								glm::length(bodies[i]->pos - glm::vec2(3.0f, -2.0f)) < 0.4f ||
+								glm::length(bodies[i]->pos - glm::vec2(-3.0f, 2.0f)) < 0.4f ||
+								glm::length(bodies[i]->pos - glm::vec2(0.0f, 2.0f)) < 0.4f ||
+								glm::length(bodies[i]->pos - glm::vec2(3.0f, 2.0f)) < 0.4f) {
+								if (-0.4f < bodies[i]->pos.x && bodies[i]->pos.x < 0.4f) {
+									bodies[i]->vel = 0.0f;
+									balls[i].sunk = true;
+									switch (balls[i].type) {
+									case Ball::SOLID:
+										solid = true;
+										solids--;
+										break;
+									case Ball::DIAMOND:
+										diamond = true;
+										diamonds--;
+										break;
+									case Ball::EIGHT:
+										eight = true;
+									}
+								}
+							}
+						}
+					}
+					if (turn == SOLID_RESOLVING) {
+						if (eight) {
+							if (solids == 0) {
+								turn = SOLID_WIN;
+								std::cout << "Eight ball was sunk by solids. Solids wins!" << std::endl;
+							} else {
+								turn = DIAMOND_WIN;
+								std::cout << "Eight ball was sunk early by solids. Diamonds wins!" << std::endl;
+							}
+						} else if (solid && !diamond)
+							turn = SOLID;
+						else {
+							turn = DIAMOND;
+						}
+					} else if (turn == DIAMOND_RESOLVING) {
+						if (eight) {
+							if (diamonds == 0) {
+								turn = DIAMOND_WIN;
+								std::cout << "Eight ball was sunk by diamonds. Diamonds wins!" << std::endl;
+							}
+							else {
+								turn = SOLID_WIN;
+								std::cout << "Eight ball was sunk early by diamonds. Solids wins!" << std::endl;
+							}
+						} else if (diamond && !solid)
+							turn = DIAMOND;
+						else {
+							turn = SOLID;
 						}
 					}
 				}
 			}
+
+			// update objects
+			for (int i = 0; i < 15; i++)
+			{
+				if (!balls[i].sunk) {
+					balls[i].obj->transform.position = glm::vec3(balls[i].body.pos, 0.15f);
+					balls[i].obj->transform.rotation = balls[i].body.rot;
+				} else if (balls[i].obj->transform.position.z > 0.0f) {
+					balls[i].obj->transform.position.z += elapsed * 10.0f;
+					if (balls[i].obj->transform.position.z > 10.0f)
+						balls[i].obj->transform.position.z = -0.15f;
+				}
+			}
+			dozers[0].obj->transform.position = glm::vec3(dozers[0].body.pos, 0.0f);
+			dozers[0].obj->transform.rotation = dozers[0].body.rot;
+			dozers[1].obj->transform.position = glm::vec3(dozers[1].body.pos, 0.0f);
+			dozers[1].obj->transform.rotation = dozers[1].body.rot;
 
 			//camera:
 			scene.camera.transform.position = camera.radius * glm::vec3(
@@ -412,9 +687,51 @@ int main(int argc, char **argv) {
 			glUseProgram(program);
 			
 			// lights. camera. action
-			glm::vec3 light_in_camera = glm::mat3(scene.camera.transform.make_world_to_local()) * glm::vec3(0.0f, 1.0f, 10.0f);
+			glm::vec3 light_in_camera = glm::mat3(scene.camera.transform.make_world_to_local()) * glm::vec3(0.0f, 0.0f, 1.0f);
 			glUniform3fv(program_to_light, 1, glm::value_ptr(glm::normalize(light_in_camera)));
 			scene.render();
+
+			// ui
+			Draw draw;
+			for (int i = 0; i < 10; i++) {
+				draw.add_rectangle(glm::vec2(-0.95f, -0.880f + 0.05f * i), glm::vec2(-0.80f, -0.870f + 0.05f * i), glm::vec4(0x00, 0x00, 0x00, 0xFF));
+				draw.add_rectangle(glm::vec2(0.80f, -0.880f + 0.05f * i), glm::vec2(0.95f, -0.870f + 0.05f * i), glm::vec4(0x00, 0x00, 0x00, 0xFF));
+			}
+			draw.add_rectangle(glm::vec2(0.805f, -0.945f), glm::vec2(0.815f, -0.935f), glm::vec4(0xFF, 0xFF, 0xFF, 0xFF));
+			draw.add_rectangle(glm::vec2(0.935f, -0.945f), glm::vec2(0.945f, -0.935f), glm::vec4(0xFF, 0xFF, 0xFF, 0xFF));
+			draw.vertices.emplace_back(glm::vec2(-0.950f, -0.945f), glm::vec4(0xFF, 0xFF, 0xFF, 0xFF));
+			draw.vertices.emplace_back(glm::vec2(-0.930f, -0.945f), glm::vec4(0xFF, 0xFF, 0xFF, 0xFF));
+			draw.vertices.emplace_back(glm::vec2(-0.940f, -0.930f), glm::vec4(0xFF, 0xFF, 0xFF, 0xFF));
+			draw.vertices.emplace_back(glm::vec2(-0.820f, -0.945f), glm::vec4(0xFF, 0xFF, 0xFF, 0xFF));
+			draw.vertices.emplace_back(glm::vec2(-0.800f, -0.945f), glm::vec4(0xFF, 0xFF, 0xFF, 0xFF));
+			draw.vertices.emplace_back(glm::vec2(-0.810f, -0.930f), glm::vec4(0xFF, 0xFF, 0xFF, 0xFF));
+			switch (turn) {
+			case DIAMOND:
+				draw.add_rectangle(glm::vec2(-0.93f, -0.925f), glm::vec2(-0.82f, -0.925f + 0.05f * dozers[0].power), glm::vec4(0x00, 0xFF, 0x00, 0xFF));
+				draw.add_rectangle(glm::vec2(0.82f, -0.925f), glm::vec2(0.93f, -0.925f + 0.05f * dozers[1].power), glm::vec4(0x80, 0x80, 0x80, 0xFF));
+				break;
+			case SOLID:
+				draw.add_rectangle(glm::vec2(-0.93f, -0.925f), glm::vec2(-0.82f, -0.925f + 0.05f * dozers[0].power), glm::vec4(0x80, 0x80, 0x80, 0xFF));
+				draw.add_rectangle(glm::vec2(0.82f, -0.925f), glm::vec2(0.93f, -0.925f + 0.05f * dozers[1].power), glm::vec4(0x00, 0xFF, 0x00, 0xFF));
+				break;
+			case DIAMOND_RESOLVING:
+			case SOLID_RESOLVING:
+				draw.add_rectangle(glm::vec2(-0.93f, -0.925f), glm::vec2(-0.82f, -0.925f + 0.05f * dozers[0].power), glm::vec4(0x80, 0x80, 0x80, 0xFF));
+				draw.add_rectangle(glm::vec2(0.82f, -0.925f), glm::vec2(0.93f, -0.925f + 0.05f * dozers[1].power), glm::vec4(0x80, 0x80, 0x80, 0xFF));
+				break;
+			case DIAMOND_WIN:
+				draw.add_rectangle(glm::vec2(-0.93f, -0.925f), glm::vec2(-0.82f, -0.925f + 0.05f * dozers[0].power), glm::vec4(0xFF, 0xFF, 0x00, 0xFF));
+				draw.add_rectangle(glm::vec2(0.82f, -0.925f), glm::vec2(0.93f, -0.925f + 0.05f * dozers[1].power), glm::vec4(0xFF, 0x00, 0x00, 0xFF));
+				break;
+			case SOLID_WIN:
+				draw.add_rectangle(glm::vec2(-0.93f, -0.925f), glm::vec2(-0.82f, -0.925f + 0.05f * dozers[0].power), glm::vec4(0xFF, 0x00, 0x00, 0xFF));
+				draw.add_rectangle(glm::vec2(0.82f, -0.925f), glm::vec2(0.93f, -0.925f + 0.05f * dozers[1].power), glm::vec4(0xFF, 0xFF, 0x00, 0xFF));
+				break;
+			}
+			draw.add_rectangle(glm::vec2(-0.95f, -0.95f), glm::vec2(-0.80f, -0.40f), glm::vec4(0x00, 0x00, 0x00, 0xFF));
+			draw.add_rectangle(glm::vec2(0.80f, -0.95f), glm::vec2(0.95f, -0.40f), glm::vec4(0x00, 0x00, 0x00, 0xFF));
+
+			draw.draw();
 		}
 
 

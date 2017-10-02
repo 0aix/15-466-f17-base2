@@ -1,30 +1,46 @@
-# *Robot Fun Police*
+# *Eight-Ball Pool Dozer*
 
-*Robot Fun Police* is *Brian Xiao*'s implementation of [*Robot Fun Police*](http://http://graphics.cs.cmu.edu/courses/15-466-f17/game2-designs/jmccann/) for game2 in 15-466-f17.
+*Eight-Ball Pool Dozer* is *Brian Xiao*'s implementation of [*Pool Dozer*](http://http://graphics.cs.cmu.edu/courses/15-466-f17/game3-designs/jmccann/) for game3 in 15-466-f17.
 
-![](https://github.com/0aix/15-466-f17-base2/blob/master/screenshots/robot-fun-police.png?raw=true)
+It is his take on the game while ignoring many of the actual rules of eight-ball.
+
+![](https://github.com/0aix/15-466-f17-base2/blob/game3/screenshots/screenshot.png?raw=true)
+
+## Controls
+Left player
+- A/S - rotate
+- W/D - adjust power
+- Left shift - shoot
+
+Right player
+- Left/Right - rotate
+- Up/Down - adjust power
+- Right shift - shoot
+
+Camera
+- Click & Drag
 
 ## Asset Pipeline
 
-The assets for this game are all contained in [robot.blend](https://github.com/0aix/15-466-f17-base2/blob/master/models/robot.blend). The meshes in the file are exported using a python script ([export-meshes.py](https://github.com/0aix/15-466-f17-base2/blob/master/models/export-meshes.py)) to a blob file storing vertex positions and colors. The scene in the file is exported using the same script to a blob file storing objects and transformations. The meshes and scene are loaded on startup.
+The assets for this game are all contained in [robot.blend](https://github.com/0aix/15-466-f17-base2/blob/game3/models/pool.blend). The meshes in the file are exported using a python script ([export-meshes.py](https://github.com/0aix/15-466-f17-base2/blob/game3/models/export-meshes.py)) to a blob file storing vertex positions and colors. The scene in the file is exported using the same script to a blob file storing objects and transformations. The meshes and scene are loaded on startup.
 
 ## Architecture
 
-The meshes and scene were loaded with the base code. However, because of my shortcomings with blender (and really, complete lack of understanding), I had manually set up hierarchy in the robot arm by hardcoding in the relative transformations and rotations. 
+The meshes and scene were loaded with the base code with a vector of objects being kept.
 
-To determine the rotation of each part of the arm, I keep 4 Euler angle vectors (for base, link1, link2, and link3), and I calculate the rotation quaternions from these. To prevent clipping to the best of my abilities, I limit how much each part can rotate. I also prevent any rotations that bring the tip of the arm underneath the platform.
+Position/velocity updates and collision checks are split into <= 1ms time steps.
 
-The tip/nail's position is calculated using the local_to_world transform of the "hand" of the arm and a vector <0, 0, 0.5> (empirically taken from blender). Also, the balloons are treated as spheres of radii 0.6 (also taken from blender), and collision is determined by the distance of the tip to a balloon's center/position. 
+For the lighting, I use the diffuse toon-like lighting in addition to some ambient lighting.
 
-When a balloon is first popped, the mesh in the object is replaced with its popped version. After 0.2s passes, the object is then actually deleted from the scene.
-
-For the lighting, I used the toon-like lighting from the BRDF, but I left off the specular part since I didn't want to set roughness/shininess. (I did add some ambient color though since the scene felt either too dark or too bright.) It also took me the longest time to figure out that the light vector had to be transformed to camera space. 
+Draw.cpp from base0 is used to draw a UI.
 
 ## Reflection
 
-The most difficult part of this assignment was trying to set up hierarchy. I wasted a few hours trying to understand what was exactly wrong with the exported coordinates and then manually setting up the robot arm. A lot of time was spent tuning things like clipping/collision and lighting. If I were to do this assignment again, I would figure out how to get blender to do what I actually want (which is provide hierarchy information and local coordinates), though I'll undoubtedly do that for the final project (if it's 3D...). I would probably also change up Scene to make removing objects easier. 
+I wouldn't say this assignment was too hard, but it was definitely long and tedious, and a lot of thought went into re-designing gameplay and making implementation a bit simpler. 
+If I were to spend more time on this assignment, I would like to adjust/fine-tune parameters and change the starting configuration of the table. I'd also try implementing the original design.
 
-The design document was unclear whether or not the robot arm pieces could pass through itself and through other objects (like the platform underneath). That said, I limited some of the degrees of rotation on the arm, and I prevented the tip/hand from passing through the platform. Also, only the tip of the arm can pop balloons while the rest of the arm will just phase through. 
+The design document was unclear on how many rules of eight-ball would work in Pool Dozer. To take a simple route, it would have been fine to let balls simply disappear when they reach the holes and ignore scratches.
+I thought that the game would be weird to play (sorry, professor), so I changed up the rules to be turn-based and more like eight-ball.
 
 # About Base2
 
