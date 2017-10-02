@@ -22,7 +22,7 @@ Camera
 
 ## Asset Pipeline
 
-The assets for this game are all contained in [robot.blend](https://github.com/0aix/15-466-f17-base2/blob/game3/models/pool.blend). The meshes in the file are exported using a python script ([export-meshes.py](https://github.com/0aix/15-466-f17-base2/blob/game3/models/export-meshes.py)) to a blob file storing vertex positions and colors. The scene in the file is exported using the same script to a blob file storing objects and transformations. The meshes and scene are loaded on startup.
+The assets for this game are all contained in [pool.blend](https://github.com/0aix/15-466-f17-base2/blob/game3/models/pool.blend). The meshes in the file are exported using a python script ([export-meshes.py](https://github.com/0aix/15-466-f17-base2/blob/game3/models/export-meshes.py)) to a blob file storing vertex positions and colors. The scene in the file is exported using the same script to a blob file storing objects and transformations. The meshes and scene are loaded on startup.
 
 ## Architecture
 
